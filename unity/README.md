@@ -7,7 +7,9 @@
 
 ## Requisitos
 
-- Unity **6.3 LTS** (plantilla *Universal 3D*, URP).
+- Unity **6.3 LTS** (probado para instalar: 6000.3.26f1; plantilla *Universal 3D*, URP).
+  Módulos de Unity Hub: **Android Build Support** con **OpenJDK** y **Android SDK & NDK Tools**.
+  iOS Build Support solo si se compilará desde un Mac (la exportación final a iOS exige Xcode en macOS).
 - Paquetes (Window → Package Manager → *Add package by name*):
   - `com.unity.inputsystem` (suele venir en la plantilla).
   - `com.unity.nuget.newtonsoft-json` (necesario porque `Dorsal.Core.dll` usa Newtonsoft.Json).
