@@ -225,10 +225,16 @@ namespace Dorsal.Core.Match
             Ball.IntendedReceiver = null;
             Ball.PendingPassFrom = null;
 
-            if (gk != null)
+            if (gk != null && gk == ControlledAgent)
             {
                 Ball.DivingGk = gk;
-                SetAction(gk, AgentAction.Dive);
+                Ball.HumanSavePending = true;
+            }
+            else if (gk != null)
+            {
+                Ball.DivingGk = gk;
+                float tCross = Math.Abs(dirH.X) > 0.01f ? Math.Abs((goalX - start.X) / (dirH.X * speed)) : 0.4f;
+                StartDiveTowards(gk, save ? aimY : -aimY * 0.5f, aimZ, tCross);
                 if (save)
                 {
                     Ball.SaveBy = gk;
@@ -289,6 +295,12 @@ namespace Dorsal.Core.Match
 
             if (gk == null) return;
             Ball.DivingGk = gk;
+            if (gk == ControlledAgent)
+            {
+                // Portero humano: la parada depende de su colocación y de su estirada (ResolveHumanSave).
+                Ball.HumanSavePending = true;
+                return;
+            }
             // Tiempo hasta el plano del portero y punto de cruce.
             float tg = Math.Abs(vel.X) > 0.1f ? (gk.Position.X - start.X) / vel.X : tCross;
             tg = MathF2.Clamp(tg, 0.05f, tCross);
@@ -311,12 +323,64 @@ namespace Dorsal.Core.Match
             pSave = MathF2.Clamp(pSave, 0.03f, 0.95f);
 
             if (DebugLog != null) Log($"SHOT {s} d={Vec2.Distance(start.XY, new Vec2(goalX, 0)):F1} speed={speed:F1} yCross={yCross:F2} zCross={zCross:F2} gkY={gk.Position.Y:F2} lateral={lateral:F2} tg={tg:F2} reachCap={reachCap:F2} pSave={pSave:F2}");
-            SetAction(gk, AgentAction.Dive);
+            StartDiveTowards(gk, yg, zg, tg);
             if (_rng.Chance(pSave))
             {
                 Diagnostics.SavesAssigned++;
                 Ball.SaveBy = gk;
                 Ball.SaveCatch = _rng.Chance(MathF2.Clamp(0.25f + 0.55f * gk.GkHandling - speed / 80f, 0.1f, 0.85f));
+            }
+        }
+
+        // ---------------------------------------------------------------- portero
+
+        /// <summary>Estirada de la IA hacia el punto de cruce (la animación ejecuta el resultado ya decidido).</summary>
+        private void StartDiveTowards(MatchAgent gk, float y, float z, float timeToPlane)
+        {
+            float lateral = y - gk.Position.Y;
+            if (Math.Abs(lateral) < 0.5f && z < 1.9f)
+            {
+                SetAction(gk, AgentAction.Catch);
+                return;
+            }
+            float duration = MathF2.Clamp(timeToPlane, 0.25f, 0.6f);
+            StartDive(gk, new Vec2(0f, Math.Sign(lateral)), Math.Min(Math.Abs(lateral), 1.2f + 1.8f * gk.GkDiving) / duration);
+        }
+
+        private void StartDive(MatchAgent gk, Vec2 dir, float speed)
+        {
+            gk.DiveDir = dir;
+            gk.DiveSpeed = speed;
+            gk.DiveTimer = 0f;
+            gk.RushTimer = 0f;
+            SetAction(gk, AgentAction.Dive);
+        }
+
+        /// <summary>
+        /// Parada del portero humano cuando el balón llega a su altura: cuenta su posición real,
+        /// si se ha estirado (y hacia dónde) y sus atributos. Sin estirada solo para lo que le llega cerca.
+        /// </summary>
+        private void ResolveHumanSave(MatchAgent gk)
+        {
+            Ball.HumanSavePending = false;
+            var b = Ball.Position;
+            float lateral = Math.Abs(b.Y - gk.Position.Y);
+            bool diving = gk.DiveTimer >= 0f && gk.DiveTimer < 1.25f;
+            float reach = diving ? 0.95f + 0.55f * gk.GkDiving : 0.7f + 0.2f * gk.GkPositioning;
+            float zMax = diving ? 2.45f : 2.2f + 0.25f * gk.Jumping;
+            float speed = Ball.Velocity.Length;
+            float speedF = MathF2.Clamp(1.25f - speed / 45f, 0.6f, 1f);
+            float p = 0f;
+            bool fingertip = false;
+            if (lateral <= reach && b.Z <= zMax) p = (0.72f + 0.22f * gk.GkReflexes) * speedF;
+            else if (lateral <= reach + 0.4f && b.Z <= zMax + 0.3f) { p = (0.25f + 0.2f * gk.GkReflexes) * speedF; fingertip = true; }
+            if (DebugLog != null) Log($"HUMAN SAVE lateral={lateral:F2} z={b.Z:F2} diving={diving} reach={reach:F2} p={p:F2}");
+            if (p > 0f && _rng.Chance(p))
+            {
+                Diagnostics.SavesAssigned++;
+                Ball.SaveBy = gk;
+                Ball.SaveCatch = !fingertip && _rng.Chance(MathF2.Clamp(0.3f + 0.55f * gk.GkHandling - speed / 80f, 0.1f, 0.85f));
+                PerformSave(gk);
             }
         }
 

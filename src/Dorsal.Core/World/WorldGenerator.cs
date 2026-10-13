@@ -8,8 +8,26 @@ using Dorsal.Core.Simulation;
 
 namespace Dorsal.Core.World
 {
+    /// <summary>Descripción de una liga a generar.</summary>
+    public sealed class LeagueSpec
+    {
+        public string Name { get; set; } = "";
+        public string ShortName { get; set; } = "";
+        public int Tier { get; set; } = 1;
+        public int ClubCount { get; set; } = 12;
+        public int MinLevel { get; set; } = 62;
+        public int MaxLevel { get; set; } = 75;
+        public CompetitionRules Rules { get; set; } = new CompetitionRules();
+    }
+
     public sealed class WorldGenerationOptions
     {
+        /// <summary>Ligas a generar. Si es null se genera una sola con los campos LeagueName/ClubCount/… (compatibilidad).</summary>
+        public List<LeagueSpec>? Leagues { get; set; }
+
+        /// <summary>Asignar contratos a todos los jugadores (necesario para el modo carrera).</summary>
+        public bool GenerateContracts { get; set; } = true;
+
         public ulong Seed { get; set; } = 1;
         public string LeagueName { get; set; } = "Liga Solaria";
         public string LeagueShortName { get; set; } = "LSO";
@@ -58,65 +76,141 @@ namespace Dorsal.Core.World
             var world = new GameWorld
             {
                 CurrentDate = options.SeasonStart.AddDays(-14),
+                SeasonStartDate = options.SeasonStart,
                 SeasonYear = options.SeasonStart.Year,
             };
 
-            var rules = options.Rules ?? new CompetitionRules { Id = "solaria-primera" };
-            rules.Validate();
-            var league = world.AddCompetition(new Competition
+            var specs = options.Leagues ?? new List<LeagueSpec>
             {
-                Name = options.LeagueName,
-                ShortName = options.LeagueShortName,
-                Tier = 1,
-                Rules = rules,
-                SourcePackId = ContentRegistry.BasePackId,
-            });
-
-            for (int i = 0; i < options.ClubCount; i++)
-            {
-                string city = names.CityName();
-                string pattern = ClubPatterns[rng.Range(0, ClubPatterns.Length)];
-                int level = options.ClubCount == 1
-                    ? options.MaxClubLevel
-                    : options.MinClubLevel + (options.MaxClubLevel - options.MinClubLevel) * i / (options.ClubCount - 1);
-                level += rng.Range(-1, 2);
-
-                string primary = Palette[rng.Range(0, Palette.Length)];
-                string secondary;
-                do { secondary = Palette[rng.Range(0, Palette.Length)]; } while (secondary == primary);
-
-                var club = world.AddClub(new Club
+                new LeagueSpec
                 {
-                    Name = string.Format(pattern, city),
-                    ShortName = city.Substring(0, Math.Min(3, city.Length)).ToUpperInvariant(),
-                    City = city,
-                    PrimaryColor = primary,
-                    SecondaryColor = secondary,
-                    Crest = new CrestSpec { Shape = rng.Range(0, 6), Emblem = rng.Range(0, 24), Pattern = rng.Range(0, 8) },
-                    Reputation = Math.Max(1, Math.Min(100, (level - 50) * 3 + rng.Range(0, 10))),
-                    LeagueId = league.Id,
-                    StadiumName = "Estadio de " + city,
-                    StadiumCapacity = 8000 + (level - options.MinClubLevel) * 2500 + rng.Range(0, 5000),
-                    TransferBudget = (long)Math.Pow(level - 40, 2.6) * 1000,
-                    WageBudgetWeekly = (long)Math.Pow(level - 40, 2.2) * 100,
-                    Tactics = RandomTactics(rng),
+                    Name = options.LeagueName,
+                    ShortName = options.LeagueShortName,
+                    Tier = 1,
+                    ClubCount = options.ClubCount,
+                    MinLevel = options.MinClubLevel,
+                    MaxLevel = options.MaxClubLevel,
+                    Rules = options.Rules ?? new CompetitionRules { Id = "solaria-primera" },
+                },
+            };
+
+            foreach (var spec in specs)
+            {
+                spec.Rules.Validate();
+                var league = world.AddCompetition(new Competition
+                {
+                    Name = spec.Name,
+                    ShortName = spec.ShortName,
+                    Tier = spec.Tier,
+                    Rules = spec.Rules,
                     SourcePackId = ContentRegistry.BasePackId,
                 });
-                league.ClubIds.Add(club.Id);
-
-                var usedNumbers = new HashSet<int>();
-                foreach (var pos in SquadTemplate)
+                for (int i = 0; i < spec.ClubCount; i++)
                 {
-                    var p = CreateSquadPlayer(pos, level, options.SeasonStart, rng, names);
-                    world.AddPlayer(p);
-                    world.AssignToClub(p.Id, club.Id);
-                    p.ShirtNumber = PickShirtNumber(pos, usedNumbers, rng);
+                    int level = spec.ClubCount == 1
+                        ? spec.MaxLevel
+                        : spec.MinLevel + (spec.MaxLevel - spec.MinLevel) * i / (spec.ClubCount - 1);
+                    level += rng.Range(-1, 2);
+                    var club = CreateClub(world, league, level, spec.MinLevel, rng, names);
+                    foreach (var pos in SquadTemplate)
+                    {
+                        var p = CreateSquadPlayer(pos, level, options.SeasonStart, rng, names);
+                        world.AddPlayer(p);
+                        world.AssignToClub(p.Id, club.Id);
+                    }
+                    var usedNumbers = new HashSet<int>();
+                    foreach (var p in world.SquadOf(club.Id).ToList()) p.ShirtNumber = PickShirtNumber(p.Position, usedNumbers, rng);
                 }
+                world.Fixtures.AddRange(FixtureGenerator.Generate(league, options.SeasonStart, () => world.NextFixtureId++));
             }
 
-            world.Fixtures.AddRange(FixtureGenerator.Generate(league, options.SeasonStart, () => world.NextFixtureId++));
+            if (options.GenerateContracts)
+            {
+                // Generador independiente: añadir contratos no altera el resto del mundo generado.
+                var contractRng = rng.Fork();
+                foreach (var club in world.Clubs.Values.OrderBy(c => c.Id))
+                    foreach (var p in world.SquadOf(club.Id).OrderBy(x => x.Id))
+                        world.Contracts[p.Id] = InitialContract(p, club, options.SeasonStart, contractRng);
+            }
             return world;
         }
+
+        private static Club CreateClub(GameWorld world, Competition league, int level, int minLevel, DeterministicRandom rng, NameGenerator names)
+        {
+            string city = names.CityName();
+            string pattern = ClubPatterns[rng.Range(0, ClubPatterns.Length)];
+            string primary = Palette[rng.Range(0, Palette.Length)];
+            string secondary;
+            do { secondary = Palette[rng.Range(0, Palette.Length)]; } while (secondary == primary);
+
+            var club = world.AddClub(new Club
+            {
+                Name = string.Format(pattern, city),
+                ShortName = city.Substring(0, Math.Min(3, city.Length)).ToUpperInvariant(),
+                City = city,
+                PrimaryColor = primary,
+                SecondaryColor = secondary,
+                Crest = new CrestSpec { Shape = rng.Range(0, 6), Emblem = rng.Range(0, 24), Pattern = rng.Range(0, 8) },
+                Reputation = Math.Max(1, Math.Min(100, (level - 50) * 3 + rng.Range(0, 10))),
+                Level = level,
+                LeagueId = league.Id,
+                StadiumName = "Estadio de " + city,
+                StadiumCapacity = 8000 + Math.Max(0, level - minLevel) * 2500 + rng.Range(0, 5000),
+                TransferBudget = (long)Math.Pow(Math.Max(1, level - 40), 2.6) * 1000,
+                WageBudgetWeekly = (long)Math.Pow(Math.Max(1, level - 40), 2.2) * 100,
+                Tactics = RandomTactics(rng),
+                SourcePackId = ContentRegistry.BasePackId,
+            });
+            league.ClubIds.Add(club.Id);
+            return club;
+        }
+
+        public static Contract InitialContract(Player p, Club club, DateTime seasonStart, DeterministicRandom rng)
+        {
+            int age = p.AgeOn(seasonStart);
+            int years = age <= 22 ? rng.Range(2, 6) : age <= 29 ? rng.Range(1, 5) : rng.Range(1, 3);
+            var role = Economy.RoleFor(p.Overall, club.Level, age);
+            return new Contract
+            {
+                PlayerId = p.Id,
+                ClubId = club.Id,
+                StartDate = seasonStart.AddYears(-rng.Range(0, 3)),
+                EndDate = SeasonEnd(seasonStart.Year + years - 1),
+                WageWeekly = Economy.FairWage(p, club.Level, role),
+                AppearanceBonus = Economy.FairWage(p, club.Level, role) / 10,
+                GoalBonus = Economy.FairWage(p, club.Level, role) / 5,
+                Role = role,
+            };
+        }
+
+        /// <summary>Fin de un contrato de <paramref name="years"/> temporadas firmado en <paramref name="signedOn"/> (la temporada va de julio a junio).</summary>
+        public static DateTime ContractEnd(DateTime signedOn, int years)
+        {
+            int seasonStartYear = signedOn.Month >= 7 ? signedOn.Year : signedOn.Year - 1;
+            return SeasonEnd(seasonStartYear + Math.Max(1, years) - 1);
+        }
+
+        /// <summary>Fin de la temporada que empieza en <paramref name="seasonStartYear"/> (30 de junio del año siguiente).</summary>
+        public static DateTime SeasonEnd(int seasonStartYear) => new DateTime(seasonStartYear + 1, 6, 30);
+
+        /// <summary>Mundo estándar del modo carrera: dos divisiones con ascensos y descensos.</summary>
+        public static WorldGenerationOptions CareerDefaults(ulong seed) => new WorldGenerationOptions
+        {
+            Seed = seed,
+            Leagues = new List<LeagueSpec>
+            {
+                new LeagueSpec
+                {
+                    Name = "Primera Solaria", ShortName = "PSO", Tier = 1, ClubCount = 12, MinLevel = 66, MaxLevel = 77,
+                    Rules = new CompetitionRules { Id = "solaria-primera", RelegationSlots = 2 },
+                },
+                new LeagueSpec
+                {
+                    Name = "Segunda Solaria", ShortName = "SSO", Tier = 2, ClubCount = 12, MinLevel = 55, MaxLevel = 66,
+                    Rules = new CompetitionRules { Id = "solaria-segunda", PromotionSlots = 2 },
+                },
+            },
+        };
 
         public static Player CreateSquadPlayer(Position pos, int clubLevel, DateTime refDate, DeterministicRandom rng, NameGenerator names)
         {
@@ -166,7 +260,7 @@ namespace Dorsal.Core.World
             Tempo = rng.Range(30, 80),
         };
 
-        private static int PickShirtNumber(Position pos, HashSet<int> used, DeterministicRandom rng)
+        public static int PickShirtNumber(Position pos, HashSet<int> used, DeterministicRandom rng)
         {
             int[] preferred = pos switch
             {

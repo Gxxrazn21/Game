@@ -37,6 +37,9 @@ namespace Dorsal.Core.Domain
         public CrestSpec Crest { get; set; } = new CrestSpec();
 
         public int Reputation { get; set; } = 50;
+
+        /// <summary>Nivel deportivo objetivo del club (media aproximada de su once); evoluciona entre temporadas.</summary>
+        public int Level { get; set; } = 65;
         public int? LeagueId { get; set; }
         public Tactics Tactics { get; set; } = new Tactics();
         public List<int> SquadPlayerIds { get; set; } = new List<int>();

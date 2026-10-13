@@ -89,6 +89,7 @@ namespace Dorsal.Core.Match
             if (Ball.ShotBy != null && Ball.Velocity.Length < 5f)
             {
                 Ball.ShotBy = null;
+                Ball.HumanSavePending = false;
                 Ball.SaveBy = null;
                 Ball.BlockBy = null;
                 Ball.DivingGk = null;
@@ -119,6 +120,14 @@ namespace Dorsal.Core.Match
                     ReleaseBall(blocker, defl, KickKind.Deflection);
                     blocker.ControlCooldown = 0.4f;
                     shooter.ControlCooldown = 0.3f;
+                    return;
+                }
+                if (Ball.HumanSavePending && Ball.DivingGk != null)
+                {
+                    var hgk = Ball.DivingGk;
+                    float gkRelX = hgk.Position.X * Ball.ShotBy.Team.AttackDir;
+                    float ballRelX = bp.X * Ball.ShotBy.Team.AttackDir;
+                    if (ballRelX >= gkRelX - 0.3f) ResolveHumanSave(hgk);
                     return;
                 }
                 if (Ball.SaveBy != null)

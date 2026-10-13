@@ -125,6 +125,10 @@ namespace Dorsal.Core.Match
         Shoot,
         Cross,
         Tackle,
+        /// <summary>Portero: estirada en la dirección del joystick (sin dirección: blocaje en el sitio).</summary>
+        Dive,
+        /// <summary>Portero: salir a por el balón.</summary>
+        KeeperRush,
     }
 
     /// <summary>Entrada humana para el agente controlado en un tick.</summary>

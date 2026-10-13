@@ -177,13 +177,8 @@ namespace Dorsal.Core.Match
                 return;
             }
 
-            // Portero lanzándose a por un tiro.
-            if (Ball.DivingGk == a && Ball.ShotBy != null)
-            {
-                a.Target = PredictCrossingAt(a.Position.X);
-                a.WantsSprint = true;
-                return;
-            }
+            // Portero en plena estirada: no decide nada más.
+            if (a.DiveTimer >= 0f) return;
 
             // Persecución de balón suelto (actualizada cada tick).
             if (Ball.Owner == null)
@@ -642,14 +637,52 @@ namespace Dorsal.Core.Match
 
         private void ApplyHumanInput(MatchAgent a, PlayerInput input)
         {
+            if (a.DiveTimer >= 0f) return; // durante la estirada no hay control
             var move = input.Move.ClampLength(1f);
             a.Target = a.Position + move * 6f;
             a.WantsSprint = input.Sprint && move.LengthSq > 0.01f;
             if (move.LengthSq < 0.0025f) a.Target = a.Position;
 
+            if (a.IsGoalkeeper && Ball.Owner != a)
+            {
+                if (a.RushTimer > 0f)
+                {
+                    a.RushTimer -= _dt;
+                    a.Target = Ball.Owner == null ? InterceptPointFor(a) : Ball.Owner.Position;
+                    a.WantsSprint = true;
+                }
+                else if (move.LengthSq < 0.0025f)
+                {
+                    // Colocación asistida: sin joystick, el portero se coloca solo; el usuario decide estiradas y salidas.
+                    GoalkeeperPositioning(a);
+                }
+            }
+            if (a.IsGoalkeeper && Ball.Owner == a && a.HoldingInHands)
+            {
+                a.HoldTimer -= _dt;
+                if (a.HoldTimer < -6f) { GoalkeeperDistribute(a); return; } // no se puede retener indefinidamente
+            }
+
             if (input.Action == InputAction.None) return;
             Vec2 dir = move.LengthSq > 0.01f ? move.Normalized : a.Facing;
             var team = a.Team;
+
+            if (a.IsGoalkeeper && Ball.Owner != a)
+            {
+                if (input.Action == InputAction.Dive || input.Action == InputAction.Tackle && Ball.Owner == null)
+                {
+                    float dist = 1.0f + 1.8f * a.GkDiving;
+                    if (move.LengthSq > 0.04f) StartDive(a, move.Normalized, dist / 0.45f);
+                    else StartDive(a, Vec2.Zero, 0f); // blocaje en el sitio
+                    return;
+                }
+                if (input.Action == InputAction.KeeperRush) { a.RushTimer = 1.2f; return; }
+            }
+            if (a.IsGoalkeeper && Ball.Owner == a && input.Action == InputAction.Shoot)
+            {
+                // El portero no tira: el botón de tiro es el saque largo.
+                input.Action = InputAction.LoftedPass;
+            }
 
             if (Ball.Owner == a)
             {
@@ -712,7 +745,6 @@ namespace Dorsal.Core.Match
             if (Ball.Owner == a) top *= 0.8f + 0.12f * a.Dribbling;
             if (a.Injured) top *= 0.75f;
             if (a.StumbleTimer > 0f) top *= 0.35f;
-            if (Ball.DivingGk == a) top *= 1.6f;
             return top;
         }
 
@@ -742,6 +774,16 @@ namespace Dorsal.Core.Match
             {
                 var a = _onPitch[i];
                 if (!a.OnPitch) continue;
+                if (a.DiveTimer >= 0f)
+                {
+                    // Estirada: impulso lateral 0,45 s, en el suelo hasta 1,25 s y se levanta.
+                    a.DiveTimer += _dt;
+                    a.Velocity = a.DiveTimer < 0.45f ? a.DiveDir * a.DiveSpeed : Vec2.Zero;
+                    a.Position = ClampToPitch(a.Position + a.Velocity * _dt, -3f);
+                    if (a.DiveTimer >= 1.25f) a.DiveTimer = -1f;
+                    _separation[i] = Vec2.Zero;
+                    continue;
+                }
                 Vec2 toTarget = a.Target - a.Position;
                 float dist = toTarget.Length;
                 float maxSpeed = TopSpeed(a, a.WantsSprint);

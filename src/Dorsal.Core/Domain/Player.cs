@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace Dorsal.Core.Domain
 {
@@ -84,10 +85,36 @@ namespace Dorsal.Core.Domain
         /// <summary>Paquete de contenido del que procede (control de licencias).</summary>
         public string SourcePackId { get; set; } = "";
 
+        /// <summary>Lesión actual (null si está disponible).</summary>
+        public Injury? Injury { get; set; }
+
+        /// <summary>Partidos de sanción pendientes.</summary>
+        public int SuspensionMatches { get; set; }
+
+        /// <summary>Amarillas acumuladas para el ciclo de sanción.</summary>
+        public int YellowAccumulated { get; set; }
+
+        /// <summary>Puntos fraccionarios de progresión pendientes de aplicar.</summary>
+        public float ProgressAccumulator { get; set; }
+
+        /// <summary>Últimas notas (la más reciente al final) para calcular la forma.</summary>
+        public List<float> RecentRatings { get; set; } = new List<float>();
+
+        /// <summary>Minutos de los últimos partidos de su club (para la progresión por tiempo de juego).</summary>
+        public List<int> RecentMinutes { get; set; } = new List<int>();
+
+        public bool Retired { get; set; }
+
+        [JsonIgnore]
+        public bool IsAvailable => Injury == null && SuspensionMatches <= 0 && !Retired;
+
+        [JsonIgnore]
         public string DisplayName => string.IsNullOrEmpty(FirstName) ? LastName : FirstName.Substring(0, 1) + ". " + LastName;
 
+        [JsonIgnore]
         public string FullName => (FirstName + " " + LastName).Trim();
 
+        [JsonIgnore]
         public int Overall => PositionRatings.Overall(Attributes, Position);
 
         public int AgeOn(DateTime date)

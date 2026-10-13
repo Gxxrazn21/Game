@@ -160,15 +160,36 @@ public class WorldGeneratorTests
     }
 
     [Fact]
-    public void AssignToClubKeepsBothSidesConsistent()
+    public void TransferKeepsSquadsContractsAndBudgetsConsistent()
     {
         var w = TestWorlds.Small();
         var clubs = w.Clubs.Values.OrderBy(c => c.Id).ToList();
         int pid = clubs[0].SquadPlayerIds[0];
-        w.AssignToClub(pid, clubs[1].Id);
+        long sellerBudget = clubs[0].TransferBudget, buyerBudget = clubs[1].TransferBudget;
+        var contract = new Contract { PlayerId = pid, ClubId = clubs[1].Id, StartDate = w.CurrentDate, EndDate = w.CurrentDate.AddYears(2), WageWeekly = 1000 };
+        w.TransferPlayer(pid, clubs[1].Id, 1000, contract, TransferType.Transfer);
         Assert.Empty(w.Validate());
         Assert.Equal(clubs[1].Id, w.Players[pid].ClubId);
         Assert.DoesNotContain(pid, clubs[0].SquadPlayerIds);
+        Assert.Equal(sellerBudget + 1000, clubs[0].TransferBudget);
+        Assert.Equal(buyerBudget - 1000, clubs[1].TransferBudget);
+        Assert.Equal(clubs[1].Id, w.Contracts[pid].ClubId);
+        Assert.Single(w.Transfers);
+    }
+
+    [Fact]
+    public void ImpossibleTransfersAreRejectedWithoutSideEffects()
+    {
+        var w = TestWorlds.Small();
+        var clubs = w.Clubs.Values.OrderBy(c => c.Id).ToList();
+        int pid = clubs[0].SquadPlayerIds[0];
+        var tooExpensive = new Contract { PlayerId = pid, ClubId = clubs[1].Id, StartDate = w.CurrentDate, EndDate = w.CurrentDate.AddYears(1) };
+        Assert.Throws<InvalidOperationException>(() => w.TransferPlayer(pid, clubs[1].Id, clubs[1].TransferBudget + 1, tooExpensive, TransferType.Transfer));
+        var wrongClub = new Contract { PlayerId = pid, ClubId = clubs[2].Id, StartDate = w.CurrentDate, EndDate = w.CurrentDate.AddYears(1) };
+        Assert.Throws<InvalidOperationException>(() => w.TransferPlayer(pid, clubs[1].Id, 0, wrongClub, TransferType.Transfer));
+        Assert.Equal(clubs[0].Id, w.Players[pid].ClubId);
+        Assert.Empty(w.Validate());
+        Assert.Empty(w.Transfers);
     }
 
     [Fact]

@@ -162,6 +162,18 @@ namespace Dorsal.Core.Match
         internal float RunTimer;
         internal Vec2 RunTarget;
         internal float HoldTimer;
+        internal float DiveTimer = -1f;
+        internal Vec2 DiveDir;
+        internal float DiveSpeed;
+        internal float RushTimer;
+
+        /// <summary>Segundos desde el inicio de la estirada (−1 si no se está estirando). Para animaciones.</summary>
+        public float DiveTime => DiveTimer;
+
+        /// <summary>Dirección de la estirada en el plano del campo.</summary>
+        public Vec2 DiveDirection => DiveDir;
+
+        public bool IsDiving => DiveTimer >= 0f;
         internal bool HoldingInHands;
         internal int EnteredMinute;
         internal bool EverPlayed;
@@ -211,6 +223,7 @@ namespace Dorsal.Core.Match
         internal bool SaveCatch;
         internal MatchAgent? BlockBy;
         internal MatchAgent? DivingGk;
+        internal bool HumanSavePending;
         internal bool IsPenaltyShot;
     }
 

@@ -20,8 +20,9 @@ switch (cmd)
     case "match": RunMatch(); break;
     case "batch": RunBatch(); break;
     case "season": RunSeason(); break;
+    case "career": RunCareer(); break;
     default:
-        Console.WriteLine("Uso: dorsal <match|batch|season> [--seed N] [--half SEGUNDOS] [--n PARTIDOS] [--verbose]");
+        Console.WriteLine("Uso: dorsal <match|batch|season|career> [--seed N] [--half SEGUNDOS] [--n PARTIDOS|TEMPORADAS] [--pos ST] [--full] [--verbose]");
         break;
 }
 
@@ -147,4 +148,55 @@ void RunSeason()
         double avg = world.SquadOf(club.Id).OrderByDescending(p => p.Overall).Take(11).Average(p => p.Overall);
         Console.WriteLine($"{pos++,2}  {club.Name,-26} {row.Played,2} {row.Won,2} {row.Drawn,2} {row.Lost,2} {row.GoalsFor,3} {row.GoalsAgainst,3} {row.GoalDifference,3} {row.Points,4}  {avg,5:F1}");
     }
+}
+
+void RunCareer()
+{
+    var pos = Enum.Parse<Position>(Opt("--pos", "ST"));
+    bool full = argList.Contains("--full"); // partido del usuario con el motor completo (más lento)
+    var req = new Dorsal.Core.Career.PlayerCreationRequest
+    {
+        FirstName = "Leo", LastName = "Prueba", Nationality = "ESP", BirthDate = new DateTime(2009, 3, 1),
+        HeightCm = pos == Position.GK ? 190 : 178, Position = pos, Personality = Dorsal.Core.Career.PersonalityArchetype.Professional,
+    };
+    var sw = Stopwatch.StartNew();
+    var career = Dorsal.Core.Career.CareerSession.NewCareer(req, seed);
+    var first = career.PendingOffers.First();
+    career.AcceptOffer(first.Id);
+    Console.WriteLine($"{career.User.FullName} ({career.User.Position}) firma con {career.UserClub!.Name}. Media {career.User.Overall}, potencial oculto {career.User.Potential}");
+    int seasons = int.Parse(Opt("--n", "5"));
+    for (int s = 0; s < seasons && career.Phase != Dorsal.Core.Career.CareerPhase.Retired; s++)
+    {
+        while (career.Phase == Dorsal.Core.Career.CareerPhase.InSeason || career.Phase == Dorsal.Core.Career.CareerPhase.FreeAgent)
+        {
+            if (career.Phase == Dorsal.Core.Career.CareerPhase.FreeAgent && career.PendingOffers.Any())
+            {
+                career.AcceptOffer(career.PendingOffers.First().Id);
+                continue;
+            }
+            career.AdvanceToNextMatchDay();
+            career.SimulateUserMatch(quick: !full);
+            if (career.Phase == Dorsal.Core.Career.CareerPhase.InSeason)
+                foreach (var o in career.PendingOffers.ToList())
+                {
+                    if (o.Status != Dorsal.Core.Career.OfferStatus.Pending) continue; // aceptar una retira las demás
+                    var club = career.World.Clubs[o.ClubId];
+                    bool better = career.UserClub == null || club.Level > career.UserClub.Level;
+                    if (o.Kind == Dorsal.Core.Career.OfferKind.Renewal || (o.Kind == Dorsal.Core.Career.OfferKind.Transfer && better) || o.Kind == Dorsal.Core.Career.OfferKind.Loan)
+                        career.AcceptOffer(o.Id);
+                }
+            var problems = career.World.Validate();
+            if (problems.Count > 0) { Console.WriteLine("INVARIANTE ROTO: " + problems[0]); return; }
+        }
+        var rec = career.State.History.LastOrDefault();
+        if (rec != null)
+            Console.WriteLine($"{rec.SeasonYear}/{(rec.SeasonYear + 1) % 100:00} {rec.ClubName,-24}{(rec.OnLoan ? "(cedido)" : "        ")} {rec.LeagueName,-16} pos {rec.LeaguePosition,2} | PJ {rec.Appearances,2} (tit {rec.Starts,2}) G {rec.Goals,2} A {rec.Assists,2} nota {rec.AverageRating:F2} | media {rec.OverallAtEnd} | obj {rec.ObjectivesCompleted}/{rec.ObjectivesTotal} {(rec.Awards.Count > 0 ? "| " + string.Join(", ", rec.Awards) : "")}");
+        if (career.Phase == Dorsal.Core.Career.CareerPhase.SeasonEnded) career.StartNextSeason();
+    }
+    sw.Stop();
+    Console.WriteLine($"Confianza {career.State.CoachTrust:F0} | Banco {career.State.Bank:N0} cr | Logros: {string.Join(", ", career.State.Achievements)}");
+    Console.WriteLine($"Simulado en {sw.Elapsed.TotalSeconds:F1} s. Jugadores en el mundo: {career.World.Players.Count} (retirados {career.World.Players.Values.Count(p => p.Retired)}), traspasos registrados: {career.World.Transfers.Count}");
+    var mgr = new Dorsal.Core.Persistence.SaveManager(new Dorsal.Core.Persistence.MemorySaveStorage());
+    var bytes = mgr.Serialize("prueba", Dorsal.Core.Persistence.SaveGame.From(career));
+    Console.WriteLine($"Tamaño del guardado: {bytes.Length / 1024} KB");
 }
