@@ -1,0 +1,26 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Unity
+unity/Dorsal/[Ll]ibrary/
+unity/Dorsal/[Tt]emp/
+unity/Dorsal/[Oo]bj/
+unity/Dorsal/[Bb]uild/
+unity/Dorsal/[Bb]uilds/
+unity/Dorsal/[Ll]ogs/
+unity/Dorsal/[Uu]ser[Ss]ettings/
+unity/Dorsal/*.csproj
+unity/Dorsal/*.sln
+unity/Dorsal/Assets/Plugins/Dorsal/*.dll
+unity/Dorsal/Assets/Plugins/Dorsal/*.pdb
+unity/Dorsal/Assets/Plugins/Dorsal/*.dll.meta
+unity/Dorsal/Assets/Plugins/Dorsal/*.pdb.meta
+
+# SO / IDE
+.DS_Store
+.idea/
+*.swp
