@@ -189,6 +189,29 @@ public class MatchEngineTests
     }
 
     [Fact]
+    public void DribblingOverTheTouchlineGivesThrowInToOpponent()
+    {
+        var engine = NewEngine(8);
+        var me = engine.Home.Agents.First(a => a.OnPitch && a.Role == Position.ST);
+        engine.ControlledPlayerId = me.PlayerId;
+        int guard = 0;
+        while (engine.Ball.Owner != me && guard++ < 20000 && !engine.IsFinished) engine.Step();
+        Assert.Equal(me, engine.Ball.Owner);
+
+        // Colocarlo a un metro de la banda, sin rivales cerca, y conducir hacia fuera.
+        me.Position = new Vec2(0f, Pitch.HalfWidth - 1f);
+        foreach (var o in engine.Away.OnPitch) o.Position = new Vec2(o.Position.X, Math.Min(o.Position.Y, 0f));
+        int before = engine.Events.Count;
+        for (int i = 0; i < 40 && engine.Phase == MatchPhase.Playing; i++)
+            engine.Step(new PlayerInput { Move = new Vec2(0f, 1f), Sprint = true });
+
+        var restart = engine.Events.Skip(before).FirstOrDefault(e => e.Type == MatchEventType.ThrowIn);
+        Assert.NotNull(restart);
+        Assert.Equal(TeamSide.Away, restart!.Side);
+        Assert.Equal(MatchPhase.SetPiece, engine.Phase);
+    }
+
+    [Fact]
     public void MatchWorksWithoutAnyHumanPlayerOnPitch()
     {
         // Vista desde el banquillo: el jugador controlado es suplente; el partido sigue por IA.

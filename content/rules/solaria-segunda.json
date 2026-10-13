@@ -1,0 +1,17 @@
+{
+  "Id": "solaria-segunda",
+  "Type": "League",
+  "Rounds": 2,
+  "PointsForWin": 3,
+  "PointsForDraw": 1,
+  "PointsForLoss": 0,
+  "Tiebreakers": ["HeadToHeadPoints", "HeadToHeadGoalDifference", "GoalDifference", "GoalsFor"],
+  "PromotionSlots": 2,
+  "RelegationSlots": 0,
+  "MaxSubstitutions": 5,
+  "BenchSize": 9,
+  "YellowCardsForBan": 5,
+  "MinSquadSize": 18,
+  "MaxSquadSize": 26,
+  "DaysBetweenRounds": 7
+}

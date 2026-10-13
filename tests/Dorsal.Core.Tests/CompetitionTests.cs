@@ -155,6 +155,21 @@ public class RulesLoaderTests
     }
 
     [Fact]
+    public void RepositoryRuleFilesAreValid()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Dorsal.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        var files = Directory.GetFiles(Path.Combine(dir!.FullName, "content", "rules"), "*.json");
+        Assert.NotEmpty(files);
+        foreach (var f in files)
+        {
+            var rules = RulesLoader.FromJson(File.ReadAllText(f));
+            Assert.Equal(Path.GetFileNameWithoutExtension(f), rules.Id);
+        }
+    }
+
+    [Fact]
     public void UnknownFieldsAreRejected()
     {
         Assert.ThrowsAny<JsonException>(() => RulesLoader.FromJson(@"{ ""PuntosPorVictoria"": 3 }"));

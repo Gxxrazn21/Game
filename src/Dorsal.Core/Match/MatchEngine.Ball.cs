@@ -295,8 +295,11 @@ namespace Dorsal.Core.Match
         {
             if (Ball.Owner != null)
             {
-                // El poseedor no puede salir con el balón: se para en la línea.
-                return;
+                // Si el poseedor saca el balón del campo conduciendo, el último toque es suyo.
+                var op = Ball.Position;
+                if (Math.Abs(op.X) <= Pitch.HalfLength && Math.Abs(op.Y) <= Pitch.HalfWidth) return;
+                var owner = Ball.Owner;
+                ReleaseBall(owner, new Vec3(owner.Velocity, 0f), KickKind.Deflection);
             }
             var p = Ball.Position;
             if (Ball.PendingPassFrom != null && (Math.Abs(p.X) > Pitch.HalfLength || Math.Abs(p.Y) > Pitch.HalfWidth)) Diagnostics.PassOut++;

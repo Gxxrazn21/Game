@@ -24,5 +24,5 @@ Modo carrera completo (M4–M5), guardado (M4), animaciones humanoides (M3), men
 
 ## Estado en esta entrega
 
-- M1: **implementado y probado** con `dotnet test` (ver informe final de la entrega).
+- M1: **implementado y probado** con `dotnet test` (68 pruebas; ver `docs/informes/entrega-01.md`).
 - M2: **código de Unity escrito pero no compilado** en este entorno (no hay editor Unity). Debe abrirse en Unity 6.3 LTS para verificarlo.

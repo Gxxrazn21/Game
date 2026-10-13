@@ -1,0 +1,17 @@
+{
+  "Id": "solaria-primera",
+  "Type": "League",
+  "Rounds": 2,
+  "PointsForWin": 3,
+  "PointsForDraw": 1,
+  "PointsForLoss": 0,
+  "Tiebreakers": ["GoalDifference", "GoalsFor", "HeadToHeadPoints"],
+  "PromotionSlots": 0,
+  "RelegationSlots": 2,
+  "MaxSubstitutions": 5,
+  "BenchSize": 7,
+  "YellowCardsForBan": 5,
+  "MinSquadSize": 18,
+  "MaxSquadSize": 28,
+  "DaysBetweenRounds": 7
+}
