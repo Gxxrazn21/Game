@@ -165,19 +165,23 @@ namespace Dorsal.Core.Career
             while (!engine.IsFinished)
             {
                 engine.Step();
-                if (!requested && State.PendingRole == MatchRole.Substitute && engine.ClockMinute >= 62f && State.CoachTrust >= 30f)
-                {
-                    var user = engine.Agents.FirstOrDefault(a => a.PlayerId == State.UserPlayerId);
-                    if (user != null)
-                    {
-                        var outgoing = user.Team.OnPitch.Where(a => !a.IsGoalkeeper && a.Player.Position != Position.GK)
-                                           .OrderBy(a => Math.Abs((int)a.Role - (int)User.Position)).ThenBy(a => a.Energy).FirstOrDefault();
-                        if (outgoing != null) engine.RequestSubstitution(outgoing.PlayerId, user.PlayerId);
-                    }
-                    requested = true;
-                }
+                if (!requested) requested = MaybeBringOnUser(engine);
             }
             return engine.BuildReport();
+        }
+
+        /// <summary>
+        /// Si el usuario es suplente, el entrenador lo mete hacia el minuto 60 cuando confía mínimamente en él.
+        /// Devuelve true cuando ya se ha tomado la decisión (para no repetirla). Lo usa también la vista 3D.
+        /// </summary>
+        public bool MaybeBringOnUser(MatchEngine engine)
+        {
+            if (State.PendingRole != MatchRole.Substitute) return true;
+            if (engine.ClockMinute < 60f) return false;
+            if (State.CoachTrust < 30f) return true;
+            if (engine.Phase != MatchPhase.SetPiece && engine.Phase != MatchPhase.Playing) return false;
+            engine.SubstituteIn(State.UserPlayerId);
+            return true;
         }
 
         /// <summary>

@@ -7,13 +7,13 @@ namespace Dorsal.Unity
     {
         /// <summary>Vista lateral elevada tipo retransmisión.</summary>
         Broadcast,
-        /// <summary>Detrás del futbolista controlado.</summary>
+        /// <summary>Detrás del futbolista controlado (para el portero: detrás de su portería).</summary>
         Player,
         /// <summary>Vista alta y lejana, útil en pantallas pequeñas.</summary>
         Tactical,
     }
 
-    /// <summary>Cámaras de partido con seguimiento suavizado del balón o del jugador.</summary>
+    /// <summary>Cámaras de partido con seguimiento suavizado, más una cámara cinematográfica para repeticiones.</summary>
     public sealed class CameraRig : MonoBehaviour
     {
         public CameraMode Mode = CameraMode.Broadcast;
@@ -22,8 +22,12 @@ namespace Dorsal.Unity
         private MatchEngine _engine;
         private Transform _ball;
         private Vector3 _focus;
+        private float _replayOrbit;
 
         public Camera Camera => _camera;
+
+        /// <summary>Activa la cámara de repetición (a ras de césped, girando alrededor del balón).</summary>
+        public bool ReplayMode { get; set; }
 
         public void Init(MatchEngine engine, Transform ball)
         {
@@ -33,10 +37,12 @@ namespace Dorsal.Unity
             if (_camera == null) _camera = gameObject.AddComponent<Camera>();
             _camera.fieldOfView = 40f;
             _camera.nearClipPlane = 0.3f;
-            _camera.farClipPlane = 400f;
+            _camera.farClipPlane = 500f;
             _camera.clearFlags = CameraClearFlags.SolidColor;
-            _camera.backgroundColor = new Color(0.08f, 0.1f, 0.14f);
+            _camera.backgroundColor = new Color(0.32f, 0.45f, 0.62f);
             _focus = Vector3.zero;
+            var c = engine.ControlledAgent;
+            if (c != null && c.IsGoalkeeper) Mode = CameraMode.Player; // el portero ve mejor el juego desde su portería
         }
 
         public void Cycle() => Mode = (CameraMode)(((int)Mode + 1) % 3);
@@ -44,12 +50,25 @@ namespace Dorsal.Unity
         private void LateUpdate()
         {
             if (_engine == null || _ball == null) return;
+            float dt = Time.unscaledDeltaTime;
+
+            if (ReplayMode)
+            {
+                _replayOrbit += dt * 12f;
+                var b = _ball.position;
+                var offset = Quaternion.Euler(0f, _replayOrbit, 0f) * new Vector3(0f, 2.2f, -9f);
+                transform.position = Vector3.Lerp(transform.position, b + offset, 1f - Mathf.Exp(-5f * dt));
+                transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(b + Vector3.up * 0.8f - transform.position, Vector3.up), 1f - Mathf.Exp(-8f * dt));
+                _camera.fieldOfView = Mathf.Lerp(_camera.fieldOfView, 34f, 1f - Mathf.Exp(-4f * dt));
+                return;
+            }
+            _camera.fieldOfView = Mathf.Lerp(_camera.fieldOfView, 40f, 1f - Mathf.Exp(-4f * dt));
+
             var controlled = _engine.ControlledAgent;
             Vector3 target = _ball.position;
             if (Mode == CameraMode.Player && controlled != null)
-                target = Vector3.Lerp(PitchSpace.ToUnity(controlled.Position), _ball.position, 0.35f);
+                target = Vector3.Lerp(PitchSpace.ToUnity(controlled.Position), _ball.position, controlled.IsGoalkeeper ? 0.55f : 0.35f);
 
-            float dt = Time.deltaTime;
             _focus = Vector3.Lerp(_focus, new Vector3(target.x, 0f, target.z), 1f - Mathf.Exp(-4f * dt));
 
             Vector3 desiredPos;
@@ -57,16 +76,16 @@ namespace Dorsal.Unity
             {
                 case CameraMode.Player:
                 {
-                    // Detrás del jugador mirando hacia la portería rival.
                     float dir = controlled != null ? controlled.Team.AttackDir : 1f;
-                    desiredPos = _focus + new Vector3(-dir * 16f, 11f, 0f);
+                    desiredPos = controlled != null && controlled.IsGoalkeeper
+                        ? new Vector3(-dir * (Pitch.HalfLength + 12f), 9f, _focus.z * 0.5f)
+                        : _focus + new Vector3(-dir * 16f, 11f, 0f);
                     break;
                 }
                 case CameraMode.Tactical:
                     desiredPos = new Vector3(_focus.x * 0.6f, 75f, -38f);
                     break;
                 default:
-                    // Lateral: sigue el balón a lo largo, se mantiene en la banda.
                     desiredPos = new Vector3(_focus.x * 0.85f, 26f, -Pitch.HalfWidth - 24f + _focus.z * 0.25f);
                     break;
             }

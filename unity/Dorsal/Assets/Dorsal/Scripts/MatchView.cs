@@ -5,260 +5,240 @@ using UnityEngine;
 namespace Dorsal.Unity
 {
     /// <summary>
-    /// Representación 3D del partido. M2: primitivas (campo, porterías, cápsulas, balón).
-    /// M3 sustituirá las cápsulas por modelos humanoides con animaciones (la interfaz no cambia:
-    /// posición, orientación y <see cref="AgentAction"/> de cada agente).
+    /// Representación 3D del partido: campo, porterías, estadio, futbolistas humanoides y balón.
+    /// Solo dibuja fotogramas (<see cref="MatchFrame"/>): en directo interpola entre pasos del motor y
+    /// en las repeticiones reproduce los fotogramas grabados.
     /// </summary>
     public sealed class MatchView : MonoBehaviour
     {
         private MatchEngine _engine;
-        private readonly List<Transform> _agentViews = new List<Transform>();
-        private readonly List<Vector3> _prevPos = new List<Vector3>();
-        private readonly List<Vector3> _curPos = new List<Vector3>();
-        private readonly List<Quaternion> _prevRot = new List<Quaternion>();
-        private readonly List<Quaternion> _curRot = new List<Quaternion>();
+        private readonly List<PlayerFigure> _figures = new List<PlayerFigure>();
         private Transform _ball;
-        private Vector3 _prevBall, _curBall;
         private Transform _marker;
-        private readonly List<Transform> _labels = new List<Transform>();
+        private Vector3 _lastBallPos;
+        private int _controlledIndex = -1;
 
         public Transform BallTransform => _ball;
 
-        public void Build(MatchEngine engine)
+        public void Build(MatchEngine engine, int quality, bool stadium, IReadOnlyDictionary<int, int> skinByPlayer = null)
         {
             _engine = engine;
-            BuildPitch();
-            BuildGoal(1);
-            BuildGoal(-1);
-
+            PitchBuilder.Build(transform);
             var homeColor = PitchSpace.ParseColor(engine.Home.Setup.PrimaryColor, Color.red);
             var awayColor = PitchSpace.ParseColor(engine.Away.Setup.PrimaryColor, Color.blue);
+            var homeShorts = PitchSpace.ParseColor(engine.Home.Setup.SecondaryColor, Color.white);
+            var awayShorts = PitchSpace.ParseColor(engine.Away.Setup.SecondaryColor, Color.white);
             if (PitchSpace.ColorDistance(homeColor, awayColor) < 0.25f)
-                awayColor = PitchSpace.ParseColor(engine.Away.Setup.SecondaryColor, Color.white);
-            var gkHome = Color.Lerp(homeColor, Color.yellow, 0.6f);
-            var gkAway = Color.Lerp(awayColor, Color.green, 0.6f);
+            {
+                // Choque de colores: el visitante juega con su segunda equipación.
+                var tmp = awayColor;
+                awayColor = awayShorts;
+                awayShorts = tmp;
+                if (PitchSpace.ColorDistance(homeColor, awayColor) < 0.25f) awayColor = Color.white;
+            }
+            if (stadium) StadiumBuilder.Build(transform, homeColor, engine.Home.ClubId * 7919 + engine.Away.ClubId, quality);
 
-            var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             foreach (var agent in engine.Agents)
             {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                go.name = agent.Player.DisplayName;
-                Destroy(go.GetComponent<Collider>());
-                go.transform.SetParent(transform, false);
-                go.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f);
                 bool home = agent.Team.Side == TeamSide.Home;
-                var color = agent.IsGoalkeeper ? (home ? gkHome : gkAway) : (home ? homeColor : awayColor);
-                go.GetComponent<Renderer>().material.color = color;
-
-                // Dorsal sobre la cabeza (identidad propia, sin recursos de terceros).
-                var label = new GameObject("Dorsal");
-                label.transform.SetParent(go.transform, false);
-                label.transform.localPosition = new Vector3(0f, 1.6f, 0f);
-                var tm = label.AddComponent<TextMesh>();
-                tm.text = agent.Player.ShirtNumber?.ToString() ?? "";
-                tm.font = font;
-                tm.characterSize = 0.18f;
-                tm.fontSize = 48;
-                tm.anchor = TextAnchor.MiddleCenter;
-                tm.color = Color.white;
-                label.GetComponent<MeshRenderer>().material = font.material;
-                _labels.Add(label.transform);
-
-                _agentViews.Add(go.transform);
-                var p = PitchSpace.ToUnity(agent.Position, 0.9f);
-                _prevPos.Add(p);
-                _curPos.Add(p);
-                _prevRot.Add(Quaternion.identity);
-                _curRot.Add(Quaternion.identity);
+                bool keeper = agent.Player.Position == Dorsal.Core.Domain.Position.GK;
+                var shirt = keeper ? (home ? new Color(0.95f, 0.85f, 0.15f) : new Color(0.2f, 0.85f, 0.45f)) : (home ? homeColor : awayColor);
+                var shorts = keeper ? new Color(0.12f, 0.12f, 0.14f) : (home ? homeShorts : awayShorts);
+                int skin = skinByPlayer != null && skinByPlayer.TryGetValue(agent.PlayerId, out var sk) ? sk : Hash(agent.PlayerId) % MaterialCache.SkinTones.Length;
+                var look = new FigureLook
+                {
+                    Shirt = shirt,
+                    Shorts = shorts,
+                    Socks = shirt,
+                    Skin = MaterialCache.SkinTones[Mathf.Clamp(skin, 0, MaterialCache.SkinTones.Length - 1)],
+                    Hair = MaterialCache.HairColors[Hash(agent.PlayerId * 31) % MaterialCache.HairColors.Length],
+                    Number = agent.Player.ShirtNumber ?? 0,
+                    HeightScale = agent.Player.HeightCm / 180f,
+                    Keeper = keeper,
+                };
+                var fig = PlayerFigure.Create(transform, look, agent.Player.DisplayName);
+                fig.gameObject.SetActive(agent.OnPitch);
+                _figures.Add(fig);
             }
 
             var ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             ball.name = "Balon";
             Destroy(ball.GetComponent<Collider>());
             ball.transform.SetParent(transform, false);
-            ball.transform.localScale = Vector3.one * (Pitch.BallRadius * 2f);
-            ball.GetComponent<Renderer>().material.color = Color.white;
+            ball.transform.localScale = Vector3.one * (Pitch.BallRadius * 2.6f); // algo mayor para verlo en móvil
+            ball.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(Color.white);
+            // Paneles oscuros para que se aprecie el giro.
+            for (int i = 0; i < 3; i++)
+            {
+                var patch = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                Destroy(patch.GetComponent<Collider>());
+                patch.transform.SetParent(ball.transform, false);
+                patch.transform.localPosition = Quaternion.Euler(i * 70f, i * 120f, 0f) * Vector3.forward * 0.42f;
+                patch.transform.localScale = Vector3.one * 0.3f;
+                patch.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(new Color(0.12f, 0.12f, 0.15f));
+            }
             _ball = ball.transform;
-            _prevBall = _curBall = PitchSpace.ToUnity(engine.Ball.Position);
 
             var marker = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             marker.name = "MarcadorJugador";
             Destroy(marker.GetComponent<Collider>());
             marker.transform.SetParent(transform, false);
-            marker.transform.localScale = new Vector3(1.4f, 0.01f, 1.4f);
-            marker.GetComponent<Renderer>().material.color = new Color(1f, 0.85f, 0.1f);
+            marker.transform.localScale = new Vector3(1.3f, 0.008f, 1.3f);
+            marker.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(UiKit.Accent);
             _marker = marker.transform;
         }
 
-        /// <summary>Guardar el estado actual antes de avanzar el motor (para interpolar).</summary>
-        public void CaptureBeforeStep()
+        /// <summary>Dibuja la interpolación entre dos fotogramas.</summary>
+        public void Render(MatchFrame a, MatchFrame b, float t, float dt)
         {
-            for (int i = 0; i < _agentViews.Count; i++)
-            {
-                _prevPos[i] = _curPos[i];
-                _prevRot[i] = _curRot[i];
-            }
-            _prevBall = _curBall;
-        }
-
-        /// <summary>Leer el estado del motor tras avanzar.</summary>
-        public void CaptureAfterStep()
-        {
-            var agents = _engine.Agents;
-            for (int i = 0; i < agents.Count; i++)
-            {
-                var a = agents[i];
-                _curPos[i] = PitchSpace.ToUnity(a.Position, 0.9f);
-                var f = PitchSpace.ToUnity(a.Facing);
-                if (f.sqrMagnitude > 0.01f) _curRot[i] = Quaternion.LookRotation(f, Vector3.up);
-            }
-            _curBall = PitchSpace.ToUnity(_engine.Ball.Position);
-        }
-
-        /// <summary>Teletransporte sin interpolar (saques, descanso).</summary>
-        public void SnapAll()
-        {
-            CaptureAfterStep();
-            for (int i = 0; i < _agentViews.Count; i++)
-            {
-                _prevPos[i] = _curPos[i];
-                _prevRot[i] = _curRot[i];
-            }
-            _prevBall = _curBall;
-        }
-
-        private void Update()
-        {
-            if (_engine == null) return;
-            float alpha = Time.fixedDeltaTime > 0f ? Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime) : 1f;
-            var agents = _engine.Agents;
             var controlled = _engine.ControlledAgent;
-            for (int i = 0; i < _agentViews.Count; i++)
+            _controlledIndex = controlled != null ? controlled.Index : -1;
+            for (int i = 0; i < _figures.Count; i++)
             {
-                var view = _agentViews[i];
-                bool visible = agents[i].OnPitch;
-                if (view.gameObject.activeSelf != visible) view.gameObject.SetActive(visible);
+                var fig = _figures[i];
+                bool visible = b.OnPitch[i];
+                if (fig.gameObject.activeSelf != visible) fig.gameObject.SetActive(visible);
                 if (!visible) continue;
-                // Saltos grandes (colocación de saque) no se interpolan.
-                var target = (_curPos[i] - _prevPos[i]).sqrMagnitude > 25f ? _curPos[i] : Vector3.Lerp(_prevPos[i], _curPos[i], alpha);
-                view.localPosition = target;
-                view.localRotation = Quaternion.Slerp(_prevRot[i], _curRot[i], alpha);
-                // Indicación mínima de acción: inclinación al entrar o tirarse.
-                var act = agents[i].CurrentAction;
-                if (act == AgentAction.Dive || act == AgentAction.Tackle)
-                    view.localRotation *= Quaternion.Euler(0f, 0f, act == AgentAction.Dive ? 70f : 35f);
-                if (agents[i] == controlled) _marker.localPosition = new Vector3(target.x, 0.02f, target.z);
+                // Los saltos grandes (colocación de un saque) no se interpolan.
+                var pos = (b.Pos[i] - a.Pos[i]).sqrMagnitude > 25f ? b.Pos[i] : Vector3.Lerp(a.Pos[i], b.Pos[i], t);
+                fig.transform.localPosition = pos;
+                fig.transform.localRotation = Quaternion.Slerp(a.Rot[i], b.Rot[i], t);
+                fig.Animate(dt, Mathf.Lerp(a.Speed[i], b.Speed[i], t), b.Action[i], Mathf.Lerp(a.ActionTime[i], b.ActionTime[i], t), b.DiveTime[i], b.DiveSide[i]);
+                if (i == _controlledIndex) _marker.localPosition = new Vector3(pos.x, 0.02f, pos.z);
             }
-            _marker.gameObject.SetActive(controlled != null);
-            _ball.localPosition = (_curBall - _prevBall).sqrMagnitude > 25f ? _curBall : Vector3.Lerp(_prevBall, _curBall, alpha);
+            _marker.gameObject.SetActive(_controlledIndex >= 0);
+
+            var ballPos = (b.Ball - a.Ball).sqrMagnitude > 25f ? b.Ball : Vector3.Lerp(a.Ball, b.Ball, t);
+            ballPos.y = Mathf.Max(ballPos.y, Pitch.BallRadius * 1.3f);
+            var delta = ballPos - _lastBallPos;
+            delta.y = 0f;
+            if (delta.sqrMagnitude > 1e-6f && delta.sqrMagnitude < 25f)
+            {
+                // Rodadura: gira según la distancia recorrida.
+                var axis = Vector3.Cross(Vector3.up, delta.normalized);
+                _ball.Rotate(axis, delta.magnitude / (Pitch.BallRadius * 1.3f) * Mathf.Rad2Deg, Space.World);
+            }
+            _ball.localPosition = ballPos;
+            _lastBallPos = ballPos;
         }
 
-        private void LateUpdate()
+        private static int Hash(int x)
         {
-            // Los dorsales miran siempre a la cámara.
-            var cam = Camera.main;
-            if (cam == null) return;
-            var rot = cam.transform.rotation;
-            for (int i = 0; i < _labels.Count; i++) _labels[i].rotation = rot;
+            unchecked
+            {
+                uint h = (uint)x * 2654435761u;
+                return (int)(h >> 8) & 0x7FFFFF;
+            }
         }
+    }
 
-        // ---------------------------------------------------------------- campo
-
-        private void BuildPitch()
+    /// <summary>Campo reglamentario: césped con franjas, líneas y porterías con red.</summary>
+    public static class PitchBuilder
+    {
+        public static void Build(Transform parent)
         {
+            var root = new GameObject("Campo").transform;
+            root.SetParent(parent, false);
             var grass = GameObject.CreatePrimitive(PrimitiveType.Plane);
             grass.name = "Cesped";
-            Destroy(grass.GetComponent<Collider>());
-            grass.transform.SetParent(transform, false);
-            // Un Plane mide 10×10 unidades: 120×80 m con margen alrededor del rectángulo de juego.
-            grass.transform.localScale = new Vector3(12f, 1f, 8f);
-            grass.GetComponent<Renderer>().material.color = new Color(0.16f, 0.45f, 0.18f);
+            Object.Destroy(grass.GetComponent<Collider>());
+            grass.transform.SetParent(root, false);
+            grass.transform.localScale = new Vector3(13f, 1f, 9f);
+            grass.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(new Color(0.16f, 0.45f, 0.18f));
 
-            // Franjas de corte del césped.
             for (int i = 0; i < 10; i++)
             {
                 if (i % 2 == 0) continue;
-                var stripe = Quad("Franja", new Vector3(-Pitch.HalfLength + 10.5f * i + 5.25f, 0.01f, 0f), new Vector3(10.5f, 1f, Pitch.HalfWidth * 2f));
-                stripe.GetComponent<Renderer>().material.color = new Color(0.18f, 0.5f, 0.2f);
+                var stripe = Slab(root, "Franja", new Vector3(-Pitch.HalfLength + 10.5f * i + 5.25f, 0.01f, 0f), new Vector3(10.5f, 1f, Pitch.HalfWidth * 2f));
+                stripe.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(new Color(0.18f, 0.5f, 0.2f));
             }
 
-            float w = 0.15f;
-            float L = Pitch.HalfLength, W = Pitch.HalfWidth;
-            Line(new Vector3(0f, 0f, W), new Vector3(2 * L, 1, w));
-            Line(new Vector3(0f, 0f, -W), new Vector3(2 * L, 1, w));
-            Line(new Vector3(L, 0f, 0f), new Vector3(w, 1, 2 * W));
-            Line(new Vector3(-L, 0f, 0f), new Vector3(w, 1, 2 * W));
-            Line(Vector3.zero, new Vector3(w, 1, 2 * W));
+            float w = 0.15f, L = Pitch.HalfLength, W = Pitch.HalfWidth;
+            Line(root, new Vector3(0f, 0f, W), new Vector3(2 * L, 1, w));
+            Line(root, new Vector3(0f, 0f, -W), new Vector3(2 * L, 1, w));
+            Line(root, new Vector3(L, 0f, 0f), new Vector3(w, 1, 2 * W));
+            Line(root, new Vector3(-L, 0f, 0f), new Vector3(w, 1, 2 * W));
+            Line(root, Vector3.zero, new Vector3(w, 1, 2 * W));
             foreach (int s in new[] { 1, -1 })
             {
                 float pa = Pitch.PenaltyAreaDepth, pw = Pitch.PenaltyAreaHalfWidth;
-                Line(new Vector3(s * (L - pa), 0f, 0f), new Vector3(w, 1, 2 * pw));
-                Line(new Vector3(s * (L - pa / 2f), 0f, pw), new Vector3(pa, 1, w));
-                Line(new Vector3(s * (L - pa / 2f), 0f, -pw), new Vector3(pa, 1, w));
+                Line(root, new Vector3(s * (L - pa), 0f, 0f), new Vector3(w, 1, 2 * pw));
+                Line(root, new Vector3(s * (L - pa / 2f), 0f, pw), new Vector3(pa, 1, w));
+                Line(root, new Vector3(s * (L - pa / 2f), 0f, -pw), new Vector3(pa, 1, w));
                 float ga = Pitch.GoalAreaDepth, gw = 9.16f;
-                Line(new Vector3(s * (L - ga), 0f, 0f), new Vector3(w, 1, 2 * gw));
-                Line(new Vector3(s * (L - ga / 2f), 0f, gw), new Vector3(ga, 1, w));
-                Line(new Vector3(s * (L - ga / 2f), 0f, -gw), new Vector3(ga, 1, w));
-                Line(new Vector3(s * (L - Pitch.PenaltySpotDistance), 0f, 0f), new Vector3(0.3f, 1, 0.3f));
+                Line(root, new Vector3(s * (L - ga), 0f, 0f), new Vector3(w, 1, 2 * gw));
+                Line(root, new Vector3(s * (L - ga / 2f), 0f, gw), new Vector3(ga, 1, w));
+                Line(root, new Vector3(s * (L - ga / 2f), 0f, -gw), new Vector3(ga, 1, w));
+                Line(root, new Vector3(s * (L - Pitch.PenaltySpotDistance), 0f, 0f), new Vector3(0.3f, 1, 0.3f));
+                Goal(root, s);
             }
-            // Círculo central por segmentos.
             const int segments = 48;
             for (int i = 0; i < segments; i++)
             {
                 float a0 = i * Mathf.PI * 2f / segments, a1 = (i + 1) * Mathf.PI * 2f / segments;
                 var p0 = new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * Pitch.CenterCircleRadius;
                 var p1 = new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * Pitch.CenterCircleRadius;
-                var seg = Line((p0 + p1) / 2f, new Vector3((p1 - p0).magnitude, 1, w));
+                var seg = Line(root, (p0 + p1) / 2f, new Vector3((p1 - p0).magnitude, 1, w));
                 seg.transform.localRotation = Quaternion.LookRotation(Vector3.Cross(p1 - p0, Vector3.up).normalized, Vector3.up);
             }
         }
 
-        private GameObject Quad(string name, Vector3 center, Vector3 size)
+        private static GameObject Slab(Transform parent, string name, Vector3 center, Vector3 size)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
-            Destroy(go.GetComponent<Collider>());
-            go.transform.SetParent(transform, false);
+            Object.Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
             go.transform.localPosition = center;
             go.transform.localScale = new Vector3(size.x, 0.01f, size.z);
             return go;
         }
 
-        private GameObject Line(Vector3 center, Vector3 size)
+        private static GameObject Line(Transform parent, Vector3 center, Vector3 size)
         {
             // Separación vertical suficiente para evitar el parpadeo (z-fighting) con el césped a distancia.
-            var go = Quad("Linea", center + new Vector3(0f, 0.03f, 0f), size);
-            go.GetComponent<Renderer>().material.color = Color.white;
+            var go = Slab(parent, "Linea", center + new Vector3(0f, 0.03f, 0f), size);
+            go.GetComponent<Renderer>().sharedMaterial = MaterialCache.Get(Color.white);
             return go;
         }
 
-        private void BuildGoal(int sign)
+        private static void Goal(Transform parent, int sign)
         {
             float x = sign * (Pitch.HalfLength + 0.06f);
-            float h = Pitch.GoalHeight, hw = Pitch.GoalHalfWidth;
-            Post(new Vector3(x, h / 2f, hw), new Vector3(0.12f, h / 2f, 0.12f), false);
-            Post(new Vector3(x, h / 2f, -hw), new Vector3(0.12f, h / 2f, 0.12f), false);
-            Post(new Vector3(x, h, 0f), new Vector3(0.12f, hw, 0.12f), true);
-            // Red simplificada (cubo semitransparente no es trivial sin material propio: se usa un fondo gris).
-            var net = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            net.name = "Red";
-            Destroy(net.GetComponent<Collider>());
-            net.transform.SetParent(transform, false);
-            net.transform.localPosition = new Vector3(x + sign * 1.0f, h / 2f, 0f);
-            net.transform.localScale = new Vector3(0.05f, h, hw * 2f);
-            net.GetComponent<Renderer>().material.color = new Color(0.85f, 0.85f, 0.85f);
+            float h = Pitch.GoalHeight, hw = Pitch.GoalHalfWidth, depth = 1.8f;
+            var white = MaterialCache.Get(Color.white);
+            var net = MaterialCache.Get(new Color(0.88f, 0.88f, 0.9f));
+            Cyl(parent, new Vector3(x, h / 2f, hw), new Vector3(0.12f, h / 2f, 0.12f), Quaternion.identity, white);
+            Cyl(parent, new Vector3(x, h / 2f, -hw), new Vector3(0.12f, h / 2f, 0.12f), Quaternion.identity, white);
+            Cyl(parent, new Vector3(x, h, 0f), new Vector3(0.12f, hw, 0.12f), Quaternion.Euler(90f, 0f, 0f), white);
+            // Red: fondo, techo y laterales finos.
+            Box(parent, new Vector3(x + sign * depth, h / 2f, 0f), new Vector3(0.03f, h, hw * 2f), net);
+            Box(parent, new Vector3(x + sign * depth / 2f, h, 0f), new Vector3(depth, 0.03f, hw * 2f), net);
+            Box(parent, new Vector3(x + sign * depth / 2f, h / 2f, hw), new Vector3(depth, h, 0.03f), net);
+            Box(parent, new Vector3(x + sign * depth / 2f, h / 2f, -hw), new Vector3(depth, h, 0.03f), net);
         }
 
-        private void Post(Vector3 pos, Vector3 halfSize, bool horizontal)
+        private static void Cyl(Transform parent, Vector3 pos, Vector3 scale, Quaternion rot, Material m)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             go.name = "Poste";
-            Destroy(go.GetComponent<Collider>());
-            go.transform.SetParent(transform, false);
+            Object.Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
             go.transform.localPosition = pos;
-            go.transform.localScale = new Vector3(halfSize.x, horizontal ? halfSize.y : halfSize.y, halfSize.z);
-            if (horizontal) go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            go.GetComponent<Renderer>().material.color = Color.white;
+            go.transform.localScale = scale;
+            go.transform.localRotation = rot;
+            go.GetComponent<Renderer>().sharedMaterial = m;
+        }
+
+        private static void Box(Transform parent, Vector3 pos, Vector3 size, Material m)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = "Red";
+            Object.Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = pos;
+            go.transform.localScale = size;
+            go.GetComponent<Renderer>().sharedMaterial = m;
         }
     }
 }

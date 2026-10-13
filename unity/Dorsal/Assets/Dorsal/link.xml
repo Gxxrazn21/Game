@@ -1,0 +1,7 @@
+<!--
+  IL2CPP (Android/iOS) elimina código que no ve usado directamente. Newtonsoft.Json crea y rellena
+  los objetos del guardado por reflexión, así que se conserva el núcleo completo.
+-->
+<linker>
+  <assembly fullname="Dorsal.Core" preserve="all"/>
+</linker>

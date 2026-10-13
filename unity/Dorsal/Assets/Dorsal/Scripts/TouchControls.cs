@@ -44,6 +44,7 @@ namespace Dorsal.Unity
         private float _pendingPower;
         private float _shootHoldStart = -1f;
         private bool _attackingContext;
+        private bool _keeperContext;
 
         public bool Visible { get; set; } = true;
 
@@ -62,6 +63,7 @@ namespace Dorsal.Unity
             if (_engine == null) return;
             var me = _engine.ControlledAgent;
             _attackingContext = me != null && _engine.Ball.Owner == me;
+            _keeperContext = me != null && me.IsGoalkeeper;
             ReadTouches();
             ReadKeyboardAndGamepadActions();
         }
@@ -158,10 +160,15 @@ namespace Dorsal.Unity
         {
             switch (b)
             {
-                case Button.A: _pending = _attackingContext ? InputAction.Pass : InputAction.Tackle; break;
+                case Button.A:
+                    _pending = _attackingContext ? InputAction.Pass : (_keeperContext ? InputAction.Dive : InputAction.Tackle);
+                    break;
                 case Button.B: if (_attackingContext) _shootHoldStart = Time.unscaledTime; break;
-                case Button.C: if (_attackingContext) _pending = InputAction.ThroughPass; break;
-                case Button.D: if (_attackingContext) _pending = InputAction.Cross; break;
+                case Button.C:
+                    if (_attackingContext && !_keeperContext) _pending = InputAction.ThroughPass;
+                    else if (_keeperContext && !_attackingContext) _pending = InputAction.KeeperRush;
+                    break;
+                case Button.D: if (_attackingContext && !_keeperContext) _pending = InputAction.Cross; break;
                 case Button.Sprint: _sprintHeld = true; break;
             }
         }
@@ -234,6 +241,17 @@ namespace Dorsal.Unity
 
         private string Label(Button b)
         {
+            if (_keeperContext)
+            {
+                switch (b)
+                {
+                    case Button.A: return _attackingContext ? "SAQUE CORTO" : "ESTIRADA";
+                    case Button.B: return _attackingContext ? "SAQUE LARGO" : "";
+                    case Button.C: return _attackingContext ? "" : "SALIR";
+                    case Button.D: return "";
+                    default: return "SPRINT";
+                }
+            }
             switch (b)
             {
                 case Button.A: return _attackingContext ? "PASE" : "ENTRADA";
@@ -246,6 +264,7 @@ namespace Dorsal.Unity
 
         private void OnGUI()
         {
+            GUI.matrix = Matrix4x4.identity; // los controles usan píxeles reales (coinciden con el táctil)
             if (!Visible || _engine == null || _engine.ControlledAgent == null) return;
             var old = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, Settings.Opacity);

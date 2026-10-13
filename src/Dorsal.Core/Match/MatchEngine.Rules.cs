@@ -399,6 +399,25 @@ namespace Dorsal.Core.Match
             return true;
         }
 
+        /// <summary>
+        /// Mete a un suplente sustituyendo al jugador de campo más adecuado (misma línea y más cansado).
+        /// Devuelve false si no es posible.
+        /// </summary>
+        public bool SubstituteIn(int benchPlayerId)
+        {
+            var inAgent = _all.FirstOrDefault(a => a.PlayerId == benchPlayerId);
+            if (inAgent == null || inAgent.OnPitch || inAgent.EverPlayed) return false;
+            bool keeper = inAgent.Player.Position == Domain.Position.GK;
+            var line = Domain.Positions.LineOf(inAgent.Player.Position);
+            var outgoing = inAgent.Team.OnPitchList
+                .Where(a => a.IsGoalkeeper == keeper && _pendingSubs.All(s => s.outAgent != a))
+                .OrderBy(a => Domain.Positions.LineOf(a.Role) == line ? 0 : 1)
+                .ThenBy(a => a.Role == inAgent.Player.Position ? 0 : 1)
+                .ThenBy(a => a.Energy).ThenBy(a => a.Index)
+                .FirstOrDefault();
+            return outgoing != null && RequestSubstitution(outgoing.PlayerId, benchPlayerId);
+        }
+
         private void ExecutePendingSubstitutions()
         {
             if (_pendingSubs.Count == 0) return;

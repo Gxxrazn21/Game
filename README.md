@@ -13,9 +13,17 @@ ninguna licencia oficial.
 | Hito | Contenido | Estado |
 |---|---|---|
 | M0 | Investigación y diseño (`docs/`) | ✅ |
-| M1 | Núcleo C# + motor de partido determinista + pruebas | ✅ (68 pruebas en verde) |
-| M2 | Prototipo Unity jugable en Android | 🟡 compila y se juega en el editor Unity 6.3 (Windows, 0 errores); falta build Android y medir FPS |
-| M3+ | Ver `docs/06-plan-desarrollo-hitos.md` | ⏳ |
+| M1 | Núcleo C# + motor de partido determinista + pruebas | ✅ |
+| M2 | Prototipo Unity jugable | ✅ compiló y se jugó en Unity 6.3 (editor Windows) |
+| M3 | Humanoides animados, porteros, repeticiones, estadio | 🟡 versión procedural sin recursos de terceros (v0.2, pendiente de abrir en Unity) |
+| M4–M5 | Modo carrera completo, mercado, temporadas, guardado | ✅ núcleo (109 pruebas) · 🟡 pantallas Unity v0.2 pendientes de abrir en el editor |
+| M6 | Menús e identidad visual | 🟡 primera versión (IMGUI con estilo propio) |
+| M7 | Compilación Android y medición de FPS | 🟡 script de compilación y medidor listos; falta medir en dispositivos |
+
+## Modo portero
+
+Crea un portero o elige **Desafío portero**: colocación asistida, estirada dirigida, salida y paradas resueltas por
+posición, timing y atributos, con repeticiones a cámara lenta.
 
 ## Estructura
 
@@ -39,6 +47,7 @@ dotnet run --project src/Dorsal.Cli -c Release -- match --seed 3          # un p
 dotnet run --project src/Dorsal.Cli -c Release -- match --seed 3 --verbose # todos los eventos
 dotnet run --project src/Dorsal.Cli -c Release -- batch --n 200           # estadísticas de calibración
 dotnet run --project src/Dorsal.Cli -c Release -- season --seed 7         # temporada completa con el motor
+dotnet run --project src/Dorsal.Cli -c Release -- career --seed 4 --n 10 --pos GK  # carrera simulada de 10 temporadas
 tools/build-core-for-unity.sh                                  # copia Dorsal.Core.dll a Unity
 ```
 
@@ -55,3 +64,4 @@ tools/build-core-for-unity.sh                                  # copia Dorsal.Co
 - [Alcance v0.1](docs/08-alcance-primera-version.md)
 - [Criterios de aceptación](docs/09-criterios-aceptacion.md)
 - [Informe de la entrega 1](docs/informes/entrega-01.md)
+- [Informe de la entrega 2](docs/informes/entrega-02.md)
