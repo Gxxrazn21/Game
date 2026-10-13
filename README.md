@@ -14,7 +14,7 @@ ninguna licencia oficial.
 |---|---|---|
 | M0 | Investigación y diseño (`docs/`) | ✅ |
 | M1 | Núcleo C# + motor de partido determinista + pruebas | ✅ (67 pruebas en verde) |
-| M2 | Prototipo Unity jugable en Android | 🟡 scripts escritos, **sin compilar en Unity** |
+| M2 | Prototipo Unity jugable en Android | 🟡 compila y se juega en el editor Unity 6.3 (Windows, 0 errores); falta build Android y medir FPS |
 | M3+ | Ver `docs/06-plan-desarrollo-hitos.md` | ⏳ |
 
 ## Estructura

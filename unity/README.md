@@ -1,9 +1,7 @@
 # Proyecto Unity — DORSAL (prototipo M2)
 
-> **Estado:** estos scripts **no se han abierto ni compilado en el editor de Unity** (el entorno donde se escribieron
-> no tiene Unity). Se ha comprobado que compilan como C# contra el núcleo real (`Dorsal.Core`) y contra *stubs*
-> de la API de Unity, lo que detecta errores de C# pero **no** diferencias con la API real. La primera tarea del
-> hito M2 es abrirlos en Unity 6.3 LTS y corregir lo que haga falta.
+> **Estado (13-10-2026):** compila sin errores ni avisos y el partido se juega en el editor de Unity 6.3 LTS
+> (6000.3.26f1, Windows, DX11). Pendiente: compilación Android y medición de FPS en dispositivos.
 
 ## Requisitos
 

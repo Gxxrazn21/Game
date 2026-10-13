@@ -178,11 +178,11 @@ namespace Dorsal.Unity
             for (int i = 0; i < 10; i++)
             {
                 if (i % 2 == 0) continue;
-                var stripe = Quad("Franja", new Vector3(-Pitch.HalfLength + 10.5f * i + 5.25f, 0.002f, 0f), new Vector3(10.5f, 1f, Pitch.HalfWidth * 2f));
+                var stripe = Quad("Franja", new Vector3(-Pitch.HalfLength + 10.5f * i + 5.25f, 0.01f, 0f), new Vector3(10.5f, 1f, Pitch.HalfWidth * 2f));
                 stripe.GetComponent<Renderer>().material.color = new Color(0.18f, 0.5f, 0.2f);
             }
 
-            float w = 0.12f;
+            float w = 0.15f;
             float L = Pitch.HalfLength, W = Pitch.HalfWidth;
             Line(new Vector3(0f, 0f, W), new Vector3(2 * L, 1, w));
             Line(new Vector3(0f, 0f, -W), new Vector3(2 * L, 1, w));
@@ -220,13 +220,14 @@ namespace Dorsal.Unity
             Destroy(go.GetComponent<Collider>());
             go.transform.SetParent(transform, false);
             go.transform.localPosition = center;
-            go.transform.localScale = new Vector3(size.x, 0.002f, size.z);
+            go.transform.localScale = new Vector3(size.x, 0.01f, size.z);
             return go;
         }
 
         private GameObject Line(Vector3 center, Vector3 size)
         {
-            var go = Quad("Linea", center + new Vector3(0f, 0.004f, 0f), size);
+            // Separación vertical suficiente para evitar el parpadeo (z-fighting) con el césped a distancia.
+            var go = Quad("Linea", center + new Vector3(0f, 0.03f, 0f), size);
             go.GetComponent<Renderer>().material.color = Color.white;
             return go;
         }
